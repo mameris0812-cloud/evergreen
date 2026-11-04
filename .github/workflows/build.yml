@@ -56,11 +56,17 @@ jobs:
         working-directory: project
         run: gradle assembleDebug --stacktrace
 
+      # APK를 폴더/zip 없이 파일 하나로 올리기 위해 이름을 고정해서 복사
+      - name: Prepare debug APK
+        run: |
+          mkdir -p out
+          cp "$(ls project/app/build/outputs/apk/debug/*.apk | head -n 1)" out/evergreen-debug.apk
+
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: evergreen-debug-apk
-          path: project/app/build/outputs/apk/debug/*.apk
+          path: out/evergreen-debug.apk
+          archive: false
           if-no-files-found: error
 
       # R8 최적화된 릴리스 APK (실패해도 디버그 APK에는 영향 없음)
@@ -70,10 +76,16 @@ jobs:
         working-directory: project
         run: gradle assembleRelease --stacktrace
 
+      - name: Prepare release APK
+        if: steps.release.outcome == 'success'
+        run: |
+          mkdir -p out
+          cp "$(ls project/app/build/outputs/apk/release/*.apk | head -n 1)" out/evergreen-release.apk
+
       - name: Upload release APK
         if: steps.release.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: evergreen-release-apk
-          path: project/app/build/outputs/apk/release/*.apk
+          path: out/evergreen-release.apk
+          archive: false
           if-no-files-found: error
