@@ -25,10 +25,17 @@ jobs:
         id: unzip
         run: |
           set -e
-          ZIP=$(ls -t *.zip 2>/dev/null | head -n 1)
+          # 최신 zip부터 보면서 settings.gradle(.kts)가 들어있는 "전체 프로젝트 zip"만 고른다
+          ZIP=""
+          for f in $(ls -t *.zip 2>/dev/null); do
+            if unzip -Z1 "$f" | grep -qE '(^|/)settings\.gradle(\.kts)?$'; then
+              ZIP="$f"; break
+            fi
+            echo "건너뜀(프로젝트 zip 아님): $f"
+          done
           if [ -z "$ZIP" ]; then
-            # zip 삭제 커밋 등: 실패 처리하지 않고 나머지 단계를 건너뜀
-            echo "zip 파일이 없어 빌드를 건너뜁니다."
+            # 프로젝트 zip이 없음(삭제 커밋 등): 실패 처리하지 않고 나머지 단계를 건너뜀
+            echo "빌드할 프로젝트 zip이 없어 건너뜁니다."
             echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
