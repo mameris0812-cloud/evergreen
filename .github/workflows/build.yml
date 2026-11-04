@@ -18,12 +18,12 @@ jobs:
 
       - name: Unzip newest zip
         run: |
-          ZIP=$(ls -t *.zip 2>/dev/null | head -1)
+          ZIP=$(ls *.zip 2>/dev/null | sort -V | tail -1)
           [ -n "$ZIP" ] || { echo "저장소 루트에 zip 파일이 없습니다"; exit 1; }
           echo "사용할 zip: $ZIP"
           mkdir -p /tmp/src
           unzip -q -o "$ZIP" -d /tmp/src
-          # zip 안에 바깥 폴더가 한 겹 더 있어도 찾아낸다
+          # (여러 zip 이 있으면 이름의 버전 번호가 가장 큰 것) zip 안에 바깥 폴더가 한 겹 더 있어도 찾아낸다
           ROOT=$(dirname "$(find /tmp/src -maxdepth 3 -name settings.gradle.kts | head -1)")
           [ -n "$ROOT" ] || { echo "settings.gradle.kts 를 못 찾음"; exit 1; }
           echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
