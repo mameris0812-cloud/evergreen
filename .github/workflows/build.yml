@@ -1,86 +1,75 @@
-
-name: Build Evergreen APK
+name: Build APK from ZIP
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    paths:
+      - "*.zip"
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract ZIP project if needed
-        shell: bash
+      - name: Unzip newest zip
         run: |
-          mkdir -p _source
+          ZIP=$(ls -t *.zip 2>/dev/null | head -1)
+          [ -n "$ZIP" ] || { echo "저장소 루트에 zip 파일이 없습니다"; exit 1; }
+          echo "사용할 zip: $ZIP"
+          mkdir -p /tmp/src
+          unzip -q -o "$ZIP" -d /tmp/src
+          # zip 안에 바깥 폴더가 한 겹 더 있어도 찾아낸다
+          ROOT=$(dirname "$(find /tmp/src -maxdepth 3 -name settings.gradle.kts | head -1)")
+          [ -n "$ROOT" ] || { echo "settings.gradle.kts 를 못 찾음"; exit 1; }
+          echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
 
-          if ! find . -name settings.gradle.kts -o -name settings.gradle | grep -q .; then
-            ZIP=$(find . -maxdepth 3 -name '*.zip' -not -path './.git/*' | head -n 1)
-
-            if [ -z "$ZIP" ]; then
-              echo "Project ZIP not found"
-              exit 1
-            fi
-
-            unzip -o "$ZIP" -d _source
-          fi
-
-      - name: Locate Gradle project
-        shell: bash
-        run: |
-          PROJECT=$(find . -type f \( \
-            -name settings.gradle.kts -o \
-            -name settings.gradle \
-            \) -not -path './.git/*' | head -n 1)
-
-          if [ -z "$PROJECT" ]; then
-            echo "Gradle project not found"
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$(dirname "$PROJECT")" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT"
-
-      - name: Setup JDK 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: 17
 
-      - name: Setup Gradle 8.7
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: 8.7
 
-      - name: Build APK
+      - name: Build debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --stacktrace
+
+      - name: Build release APK
+        id: release
+        continue-on-error: true
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleRelease --stacktrace
+
+      # APK 를 폴더 없이 한 곳에 평평하게 모은다
+      - name: Collect APKs (flat)
         run: |
-          gradle -p "$PROJECT_DIR" assembleDebug --no-daemon
-
-      - name: Copy APK to root
-        run: |
-          APK=$(find "$PROJECT_DIR" -type f \
-            -path '*/build/outputs/apk/debug/*.apk' | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "APK not found"
-            exit 1
+          mkdir -p /tmp/out
+          cp "$PROJECT_DIR"/app/build/outputs/apk/debug/*.apk /tmp/out/evergreen-debug.apk
+          if [ "${{ steps.release.outcome }}" = "success" ]; then
+            cp "$PROJECT_DIR"/app/build/outputs/apk/release/*.apk /tmp/out/evergreen-release.apk
           fi
+          ls -l /tmp/out
 
-          cp "$APK" ./Evergreen.apk
-
-      - name: Upload APK
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Evergreen-APK
-          path: Evergreen.apk
+          name: evergreen-apk
+          path: /tmp/out/*.apk
           if-no-files-found: error
+
+      # 릴리스에 APK 를 직접 붙인다 (zip 압축 없이 바로 다운로드)
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          files: /tmp/out/*.apk
