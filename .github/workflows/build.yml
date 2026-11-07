@@ -26,6 +26,7 @@ jobs:
           [ -n "$ZIP" ] || ZIP=$(ls *.zip 2>/dev/null | sort -V | tail -1)
           [ -n "$ZIP" ] || { echo "저장소 루트에 zip 파일이 없습니다"; exit 1; }
           echo "사용할 zip: $ZIP"
+          echo "ZIP_FILE=$ZIP" >> "$GITHUB_ENV"   # 맨 마지막 '올린 zip 정리' 단계에서 쓴다
           mkdir -p /tmp/src
           unzip -q -o "$ZIP" -d /tmp/src
           # zip 안에 바깥 폴더가 한 겹 더 있어도 찾아낸다
@@ -66,6 +67,11 @@ jobs:
           echo "vc=$VC" >> "$GITHUB_OUTPUT"
           echo "vn=$VN" >> "$GITHUB_OUTPUT"
 
+      # 앱 안 업데이트가 받은 APK 를 검증할 체크섬 (릴리스 본문에 적는다. 본문에 없으면 앱이 업데이트를 거부한다)
+      - name: Compute APK checksum
+        id: sum
+        run: echo "sha=$(sha256sum /tmp/out/evergreen-release.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -82,5 +88,27 @@ jobs:
           body: |
             versionCode: ${{ steps.ver.outputs.vc }}
             versionName: ${{ steps.ver.outputs.vn }}
+            sha256: ${{ steps.sum.outputs.sha }}
           make_latest: true
           files: /tmp/out/*.apk
+
+      # 빌드와 릴리스가 모두 성공했을 때만, push 로 올라온 zip 을 저장소에서 지운다.
+      # 실패하면 zip 이 남아 있어서 다시 시도할 수 있고, 수동 실행(workflow_dispatch)에서는 지우지 않는다.
+      # 지우는 커밋은 GITHUB_TOKEN 으로 푸시되고 [skip ci] 도 붙어 있어서 워크플로가 다시 돌지 않는다.
+      - name: Remove uploaded zip
+        if: success() && github.event_name == 'push'
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
+          git checkout -q -B "$BRANCH" "origin/$BRANCH"
+          if ! git ls-files --error-unmatch -- "$ZIP_FILE" >/dev/null 2>&1; then
+            echo "이미 없음: $ZIP_FILE"
+            exit 0
+          fi
+          git rm -q -- "$ZIP_FILE"
+          git commit -q -m "chore: remove $ZIP_FILE after build [skip ci]"
+          git push origin "$BRANCH" || { git pull --rebase origin "$BRANCH" && git push origin "$BRANCH"; }
