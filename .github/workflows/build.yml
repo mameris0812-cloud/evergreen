@@ -15,18 +15,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 어떤 zip 이 가장 최근에 올라왔는지 git 기록으로 찾기 위해 전체 기록을 받는다
 
       - name: Unzip newest zip
         run: |
-          ZIP=$(ls *.zip 2>/dev/null | sort -V | tail -1)
+          # 가장 최근에 올리거나 바꾼 zip (git 기록 기준). 이름은 상관없다.
+          ZIP=$(git log -1 --diff-filter=AM --name-only --format= -- '*.zip' | head -1)
+          # 혹시 못 찾으면(기록 없음) 이름 순으로 가장 큰 것
+          [ -n "$ZIP" ] || ZIP=$(ls *.zip 2>/dev/null | sort -V | tail -1)
           [ -n "$ZIP" ] || { echo "저장소 루트에 zip 파일이 없습니다"; exit 1; }
           echo "사용할 zip: $ZIP"
           mkdir -p /tmp/src
           unzip -q -o "$ZIP" -d /tmp/src
-          # (여러 zip 이 있으면 이름의 버전 번호가 가장 큰 것) zip 안에 바깥 폴더가 한 겹 더 있어도 찾아낸다
-          ROOT=$(dirname "$(find /tmp/src -maxdepth 3 -name settings.gradle.kts | head -1)")
-          [ -n "$ROOT" ] || { echo "settings.gradle.kts 를 못 찾음"; exit 1; }
-          echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
+          # zip 안에 바깥 폴더가 한 겹 더 있어도 찾아낸다
+          FOUND=$(find /tmp/src -maxdepth 3 -name settings.gradle.kts | head -1)
+          [ -n "$FOUND" ] || { echo "settings.gradle.kts 를 못 찾음"; exit 1; }
+          echo "PROJECT_DIR=$(dirname "$FOUND")" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
