@@ -50,6 +50,17 @@ jobs:
           cp "$PROJECT_DIR"/app/build/outputs/apk/release/*.apk /tmp/out/evergreen-release.apk
           ls -l /tmp/out
 
+      # 앱 안 업데이트와 Obtainium 이 '새 버전인지' 판단하도록, 빌드한 앱의 버전 번호를 읽어 릴리스 설명에 적는다
+      - name: Read app version
+        id: ver
+        run: |
+          GRADLE_FILE="$PROJECT_DIR/app/build.gradle.kts"
+          VC=$(grep -oP 'versionCode = \K[0-9]+' "$GRADLE_FILE" | head -1)
+          VN=$(grep -oP 'versionName = "\K[^"]+' "$GRADLE_FILE" | head -1)
+          echo "versionCode=$VC / versionName=$VN"
+          echo "vc=$VC" >> "$GITHUB_OUTPUT"
+          echo "vn=$VN" >> "$GITHUB_OUTPUT"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -62,5 +73,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          name: Evergreen ${{ steps.ver.outputs.vn }} (build ${{ github.run_number }})
+          body: |
+            versionCode: ${{ steps.ver.outputs.vc }}
+            versionName: ${{ steps.ver.outputs.vn }}
+          make_latest: true
           files: /tmp/out/*.apk
